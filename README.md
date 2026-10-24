@@ -13,7 +13,7 @@ Il apprend à l'agent ce qu'il ne devine pas seul :
 Prérequis : [clever-tools](https://www.clever.cloud/developers/doc/cli/) installé et `clever login` déjà fait.
 
 ```bash
-git clone <ce-dépôt> && cd clever-tools-skill
+git clone https://github.com/Vitiosum/clever-tools-skill.git && cd clever-tools-skill
 bash install.sh
 ```
 
