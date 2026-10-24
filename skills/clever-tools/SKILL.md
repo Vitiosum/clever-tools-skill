@@ -1,6 +1,6 @@
 ---
 name: clever-tools
-description: Use when deploying, configuring, scaling or debugging an application on Clever Cloud with the clever-tools CLI (`clever` command) — creating an app or add-on (PostgreSQL, MySQL, Redis, Cellar), setting environment variables, reading build or runtime logs, or when a deploy fails with "not listening on 8080", "Killed", or a health check error. Also "déployer sur Clever Cloud", "mon déploiement Clever échoue".
+description: Use when deploying, configuring, scaling or debugging an application on Clever Cloud with the clever-tools CLI (`clever` command) — creating an app or add-on (PostgreSQL, MySQL, Redis, Cellar), moving a Dockerfile to a native runtime, setting environment variables, reading build or runtime logs, or when a deploy fails with "not listening on 8080", "Killed", or a health check error. Also "déployer sur Clever Cloud", "mon déploiement Clever échoue".
 ---
 
 # clever-tools
@@ -74,6 +74,27 @@ clever status                                    # flavor, instances, state
 | `ECONNREFUSED` / auth failure to DB | add-on not linked, or wrong variable name | `clever service link-addon <addon>`, read `*_ADDON_*` vars |
 
 A `503` for ~20 s right after a successful deploy is routing propagation: retry `curl` before diagnosing. A failed health check takes about 4 minutes: once the cause is visible in the logs, fix it without waiting. The build runs on a separate build instance (`clever scale --build-flavor M` if the **build** itself is killed).
+
+## From a Dockerfile to a native runtime
+
+The runtime is fixed by `clever create --type` (`docker` or `node`, `python`…): a native app ignores the Dockerfile, no need to delete it. Try both side by side from the same repo: `clever create --type node <name> --alias native`, then `clever deploy --alias native`.
+
+| Dockerfile | Native equivalent |
+|---|---|
+| `FROM node:22` / `python:3.13` | `--type node` + `engines` / `--type python` + `CC_PYTHON_VERSION` |
+| `RUN npm ci` / `pip install` | automatic at build |
+| `RUN npm run build` | `scripts.build` or `CC_POST_BUILD_HOOK` |
+| `CMD …` | `scripts.start` / `CC_RUN_COMMAND` |
+| `ENV X=…` | `clever env set X …` |
+| `EXPOSE 3000` / `ENV PORT=3000` | ignored: Clever sets `PORT=8080`, in Docker too |
+| `RUN apk/apt install <pkg>` | see below |
+
+System packages: native images already ship many tools (verified: `ffmpeg`, ImageMagick `convert`/`magick`, `chromium`, `libreoffice`, `tesseract`, `gs`, `pdftotext`, `wkhtmltopdf`, `gdal`, `exiftool`, `vips`, `rsvg-convert`; absent: `pandoc`, `qpdf`). Never guess: list them with a hook and read the restart logs (no `clever ssh`, it is interactive):
+`clever env set CC_PRE_RUN_HOOK 'for b in convert pandoc; do command -v $b >/dev/null && echo "TOOL ok $b" || echo "TOOL missing $b"; done'`, `clever restart`, then `clever env rm CC_PRE_RUN_HOOK`.
+
+Missing tool with a static Linux binary: download it in `CC_PRE_BUILD_HOOK` into the app folder (network is allowed at build, files persist to runtime), point the code at it with an env var (`./bin/pandoc`), then `clever restart --without-cache`. No static binary, or many native libraries: stay on the Docker runtime, it is fully supported.
+
+The health check only calls `/`: `curl` **every** route that uses a system tool before concluding.
 
 ## Scale and cost
 
