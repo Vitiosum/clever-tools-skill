@@ -38,3 +38,7 @@ Dans un dépôt d'application :
 skills/clever-tools/SKILL.md   # le skill (un seul fichier)
 install.sh                     # installation Claude Code + Codex
 ```
+
+## Licence
+
+MIT, © 2026 Clever Cloud SAS. Voir [LICENSE](LICENSE).
