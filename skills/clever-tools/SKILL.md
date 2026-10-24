@@ -31,7 +31,7 @@ clever profile                                   # logged in? which user?
 clever create --type node my-app --org <org-id-or-name> --region par   # writes .clever.json
 clever addon create postgresql-addon my-db --plan xxs_sml --region par \
   --org <org> --option encryption=true --link my-app --yes             # injects POSTGRESQL_ADDON_*
-clever env set NODE_ENV production
+clever env set CC_POST_BUILD_HOOK "npm run build"   # if package.json has a build step (Next.js, Vite, TypeScript…)
 git add -A && git commit -m "Deploy to Clever Cloud"
 clever deploy                                    # streams build + deploy logs, exits at the end
 clever domain                                    # → app-xxxx.cleverapps.io
@@ -50,6 +50,7 @@ curl -i https://<domain>/
 
 - Listen on `process.env.PORT` (8080) and host `0.0.0.0`, never `localhost`/`127.0.0.1` or a hard-coded port.
 - Pin the runtime version the native way (Node: `"engines": { "node": "22" }` in `package.json`).
+- The Node runtime runs `npm install`, not `npm run build`: set `CC_POST_BUILD_HOOK`. Do not set `NODE_ENV=production` before the build if a devDependency is needed to build.
 - Start command from the runtime convention (`npm start` / `package.json` `scripts.start` for Node), or `CC_RUN_COMMAND`. Build steps: `CC_PRE_BUILD_HOOK`, `CC_POST_BUILD_HOOK`; migrations: `CC_PRE_RUN_HOOK`.
 - Filesystem is ephemeral: files go to Cellar (S3) or a FS Bucket.
 
@@ -83,7 +84,7 @@ The runtime is fixed by `clever create --type` (`docker` or `node`, `python`…)
 |---|---|
 | `FROM node:22` / `python:3.13` | `--type node` + `engines` / `--type python` + `CC_PYTHON_VERSION` |
 | `RUN npm ci` / `pip install` | automatic at build |
-| `RUN npm run build` | `scripts.build` or `CC_POST_BUILD_HOOK` |
+| `RUN npm run build` | `CC_POST_BUILD_HOOK="npm run build"` (the Node runtime does not run `scripts.build` by itself) |
 | `CMD …` | `scripts.start` / `CC_RUN_COMMAND` |
 | `ENV X=…` | `clever env set X …` |
 | `EXPOSE 3000` / `ENV PORT=3000` | ignored: Clever sets `PORT=8080`, in Docker too |
