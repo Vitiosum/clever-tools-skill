@@ -89,7 +89,7 @@ The runtime is fixed by `clever create --type` (`docker` or `node`, `python`…)
 | `EXPOSE 3000` / `ENV PORT=3000` | ignored: Clever sets `PORT=8080`, in Docker too |
 | `RUN apk/apt install <pkg>` | see below |
 
-System packages: native images already ship many tools (verified: `ffmpeg`, ImageMagick `convert`/`magick`, `chromium`, `libreoffice`, `tesseract`, `gs`, `pdftotext`, `wkhtmltopdf`, `gdal`, `exiftool`, `vips`, `rsvg-convert`; absent: `pandoc`, `qpdf`). Never guess: list them with a hook and read the restart logs (no `clever ssh`, it is interactive):
+System packages: native images already ship many tools (verified: `ffmpeg`, ImageMagick `convert`/`magick`, `chromium`, `libreoffice`, `tesseract`, `gs`, `pdftotext`, `wkhtmltopdf`, `gdal`, `exiftool`, `vips`, `rsvg-convert`; absent: `pandoc`, `qpdf`). Never guess: list them with a hook and read the restart logs (`clever ssh --command` needs a terminal: it failed from a non-interactive agent shell on the Docker runtime):
 `clever env set CC_PRE_RUN_HOOK 'for b in convert pandoc; do command -v $b >/dev/null && echo "TOOL ok $b" || echo "TOOL missing $b"; done'`, `clever restart`, then `clever env rm CC_PRE_RUN_HOOK`.
 
 Missing tool with a static Linux binary: download it in `CC_PRE_BUILD_HOOK` into the app folder (network is allowed at build, files persist to runtime), point the code at it with an env var (`./bin/pandoc`), then `clever restart --without-cache`. No static binary, or many native libraries: stay on the Docker runtime, it is fully supported.
