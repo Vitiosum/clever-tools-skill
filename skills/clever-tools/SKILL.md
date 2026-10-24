@@ -1,0 +1,94 @@
+---
+name: clever-tools
+description: Use when deploying, configuring, scaling or debugging an application on Clever Cloud with the clever-tools CLI (`clever` command) — creating an app or add-on (PostgreSQL, MySQL, Redis, Cellar), setting environment variables, reading build or runtime logs, or when a deploy fails with "not listening on 8080", "Killed", or a health check error. Also "déployer sur Clever Cloud", "mon déploiement Clever échoue".
+---
+
+# clever-tools
+
+## Overview
+
+Clever Cloud deploys a **git commit** onto a native runtime (Node, Python, PHP, Go, Java, Rust, .NET, static, Docker…). The `clever` CLI drives everything. Most failures come from four things: the app not listening on `0.0.0.0:8080`, an env var the code expects, too little memory for the flavor, or uncommitted changes.
+
+## Agent rules (the CLI is interactive by default)
+
+| Command | Problem for an agent | Do instead |
+|---|---|---|
+| `clever login` | opens a browser | run `clever profile` first; if not logged in, ask the user to run `clever login` (or export `CLEVER_TOKEN` + `CLEVER_SECRET`) |
+| `clever logs` | streams forever, never returns | always bound it: `clever logs --since 15m --until now` |
+| `clever addon create` (paid plan) | waits for confirmation | add `--yes`, after the user agreed on the plan |
+| `clever open` / `clever console` | opens the **Console**, not the app | get the URL with `clever domain`, then `curl -i https://<domain>/` |
+| `clever deploy` | pushes **HEAD only** | `git status` clean and changes committed before deploying |
+| `clever delete`, `clever addon delete` | irreversible | never without explicit user confirmation |
+
+Never print secret values: use `clever env | sed 's/=.*/=…/'` to list names. A real secret comes from the user; a test value can be generated inline: `clever env set API_KEY "$(openssl rand -hex 24)" >/dev/null`.
+
+**Which app?** Commands target the app in `.clever.json`. Not linked: `clever link <app-id|name> --org <org>`. Several apps: `clever applications`, then `--app <id>` (or `--alias`). Org IDs: `clever curl https://api.clever-cloud.com/v2/organisations`.
+
+## Deploy from scratch
+
+```bash
+clever profile                                   # logged in? which user?
+clever create --type node my-app --org <org-id-or-name> --region par   # writes .clever.json
+clever addon create postgresql-addon my-db --plan xxs_sml --region par \
+  --org <org> --option encryption=true --link my-app --yes             # injects POSTGRESQL_ADDON_*
+clever env set NODE_ENV production
+git add -A && git commit -m "Deploy to Clever Cloud"
+clever deploy                                    # streams build + deploy logs, exits at the end
+clever domain                                    # → app-xxxx.cleverapps.io
+curl -i https://<domain>/
+```
+
+- Before the first commit, check `git rev-parse --show-toplevel` is the app folder: a parent repo (e.g. the home directory) would swallow `git add -A`. If not, `git init`, and a `.gitignore` with `node_modules` (no trailing slash, it also covers a symlink) before the first commit. `clever deploy` refuses linked git worktrees: deploy another branch with `--branch <name>`.
+- Regions: `par` (Paris), `parhds` / `rbxhds` / `grahds` (health data, HDS), others in `clever create --help`. Plans per add-on: `clever addon providers show postgresql-addon`.
+- Region and org must be the same for app and add-on. Encryption at rest is chosen **only at creation**.
+- PostgreSQL plans: `dev` = shared, 5 connections, no backups (tests only); `xxs_sml` and up = dedicated, 45+ connections, daily backups. Size the DB pool below the plan limit × instances.
+- Read the add-on variables (`POSTGRESQL_ADDON_URI`, `MYSQL_ADDON_URI`, `REDIS_URL`, `CELLAR_ADDON_*`) **in the code** (`process.env.DATABASE_URL || process.env.POSTGRESQL_ADDON_URI`). Copying the value into another variable freezes it.
+- Check the injected variables: `clever env | sed 's/=.*/=…/'`.
+- Env changes need `clever restart`. `clever deploy` and `clever restart` stream logs and return once the deployment ends (OK or FAIL). Same commit again → `clever restart` or `clever deploy --same-commit-policy restart`.
+
+## Code requirements
+
+- Listen on `process.env.PORT` (8080) and host `0.0.0.0`, never `localhost`/`127.0.0.1` or a hard-coded port.
+- Pin the runtime version the native way (Node: `"engines": { "node": "22" }` in `package.json`).
+- Start command from the runtime convention (`npm start` / `package.json` `scripts.start` for Node), or `CC_RUN_COMMAND`. Build steps: `CC_PRE_BUILD_HOOK`, `CC_POST_BUILD_HOOK`; migrations: `CC_PRE_RUN_HOOK`.
+- Filesystem is ephemeral: files go to Cellar (S3) or a FS Bucket.
+
+## Diagnose a failed deploy
+
+```bash
+clever activity                                  # last deployments, OK/FAIL
+clever logs --since 30m --until now              # bounded: build + run logs
+clever logs --deployment-id <id> --until now     # one deployment
+clever status                                    # flavor, instances, state
+```
+
+**"Your application is not listening on 8080" is a symptom, not a cause.** Read the lines *above* it:
+
+| Line above the error | Cause | Fix |
+|---|---|---|
+| `Killed  npm start` (no stack trace) | out of memory at runtime (OOM killer) | `clever scale --flavor XS` (or reduce memory at boot) |
+| `JavaScript heap out of memory` | Node heap limit, set per flavor by Clever (`--max-old-space-size`) | bigger flavor; do not raise `NODE_OPTIONS` above the flavor RAM |
+| `listening on localhost:3000` (or any other port/host) | wrong bind | `0.0.0.0` + `process.env.PORT` |
+| stack trace with `undefined` (`key`, `url`, `connectionString`…) | missing env var | find the variable in the code at the trace line, `clever env set NAME value`, `clever restart` |
+| starts fine, then a stack trace right after (health check calls `/`) | crash on the first request, often a missing env var | read the trace, fix, then test the route with `curl` |
+| `ECONNREFUSED` / auth failure to DB | add-on not linked, or wrong variable name | `clever service link-addon <addon>`, read `*_ADDON_*` vars |
+
+A `503` for ~20 s right after a successful deploy is routing propagation: retry `curl` before diagnosing. A failed health check takes about 4 minutes: once the cause is visible in the logs, fix it without waiting. The build runs on a separate build instance (`clever scale --build-flavor M` if the **build** itself is killed).
+
+## Scale and cost
+
+```bash
+clever scale --flavor nano                      # fixed size: pico nano XS S M L XL
+clever scale --min-flavor nano --max-flavor XS --min-instances 1 --max-instances 2
+clever stop                                     # stops compute billing (add-ons still billed)
+```
+
+Lowering `--min-flavor` does not shrink a running instance: set `--flavor <small>`, `clever restart`, then set the range again.
+
+## Common mistakes
+
+- Deploying with uncommitted changes and wondering why nothing changed.
+- Trusting the health-check message instead of the log line above it.
+- Running `clever logs` without `--until` in a non-interactive shell.
+- Using the `dev` PostgreSQL plan for a demo with several instances (5 connections).
+- Reporting success without `curl` on the app domain.
