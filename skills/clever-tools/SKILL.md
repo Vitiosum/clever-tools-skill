@@ -41,7 +41,7 @@ curl -i https://<domain>/
 - Before the first commit, check `git rev-parse --show-toplevel` is the app folder: a parent repo (e.g. the home directory) would swallow `git add -A`. If not, `git init`, and a `.gitignore` with `node_modules` (no trailing slash, it also covers a symlink) before the first commit. `clever deploy` refuses linked git worktrees: deploy another branch with `--branch <name>`.
 - Regions: `par` (Paris), `parhds` / `rbxhds` / `grahds` (health data, HDS), others in `clever create --help`. Plans per add-on: `clever addon providers show postgresql-addon`.
 - Region and org must be the same for app and add-on. Encryption at rest is chosen **only at creation**.
-- PostgreSQL plans: `dev` = shared, 5 connections, no backups (tests only); `xxs_sml` and up = dedicated, 45+ connections, daily backups. Size the DB pool below the plan limit × instances.
+- PostgreSQL plans: `dev` = shared, 5 connections, no backups (tests only); `xxs_tny` (the smallest) and up = dedicated, 45+ connections, daily backups. Size the DB pool below the plan limit × instances.
 - Read the add-on variables (`POSTGRESQL_ADDON_URI`, `MYSQL_ADDON_URI`, `REDIS_URL`, `CELLAR_ADDON_*`) **in the code** (`process.env.DATABASE_URL || process.env.POSTGRESQL_ADDON_URI`). Copying the value into another variable freezes it.
 - Check the injected variables: `clever env | sed 's/=.*/=…/'`.
 - Env changes need `clever restart`. `clever deploy` and `clever restart` stream logs and return once the deployment ends (OK or FAIL). Same commit again → `clever restart` or `clever deploy --same-commit-policy restart`.
