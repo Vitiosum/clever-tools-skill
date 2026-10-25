@@ -20,7 +20,7 @@ Clever Cloud deploys a **git commit** onto a native runtime (Node, Python, PHP, 
 | `clever deploy` | pushes **HEAD only** | `git status` clean and changes committed before deploying |
 | `clever delete`, `clever addon delete` | irreversible | never without explicit user confirmation |
 
-Never print secret values: use `clever env | sed 's/=.*/=…/'` to list names. A real secret comes from the user; a test value can be generated inline: `clever env set API_KEY "$(openssl rand -hex 24)" >/dev/null`.
+Never print secret values: use `clever env | grep -oE '^[A-Za-z_][A-Za-z0-9_]*='` to list names (a `sed` on `=` would print the following lines of a multi-line value). A real secret comes from the user; a test value can be generated inline: `clever env set API_KEY "$(openssl rand -hex 24)" >/dev/null`.
 
 **Which app?** Commands target the app in `.clever.json`. Not linked: `clever link <app-id|name> --org <org>`. Several apps: `clever applications`, then `--app <id>` (or `--alias`). Org IDs: `clever curl https://api.clever-cloud.com/v2/organisations`.
 
@@ -29,21 +29,22 @@ Never print secret values: use `clever env | sed 's/=.*/=…/'` to list names. A
 ```bash
 clever profile                                   # logged in? which user?
 clever create --type node my-app --org <org-id-or-name> --region par   # writes .clever.json
-clever addon create postgresql-addon my-db --plan xxs_sml --region par \
-  --org <org> --option encryption=true --link my-app --yes             # injects POSTGRESQL_ADDON_*
+clever addon create postgresql-addon my-db --plan xxs_tny --region par \
+  --org <org> --option encryption=true --link my-app   # paid: add --yes only after the user agreed on plan and price; injects POSTGRESQL_ADDON_*
 clever env set CC_POST_BUILD_HOOK "npm run build"   # if package.json has a build step (Next.js, Vite, TypeScript…)
-git add -A && git commit -m "Deploy to Clever Cloud"
+git status --short                               # review what would be committed (no .env, no secrets)
+git add <the files you changed> && git commit -m "Deploy to Clever Cloud"
 clever deploy                                    # streams build + deploy logs, exits at the end
 clever domain                                    # → app-xxxx.cleverapps.io
 curl -i https://<domain>/
 ```
 
-- Before the first commit, check `git rev-parse --show-toplevel` is the app folder: a parent repo (e.g. the home directory) would swallow `git add -A`. If not, `git init`, and a `.gitignore` with `node_modules` (no trailing slash, it also covers a symlink) before the first commit. `clever deploy` refuses linked git worktrees: deploy another branch with `--branch <name>`.
+- Before the first commit, check `git rev-parse --show-toplevel` is the app folder: a parent repo (e.g. the home directory) would swallow the commit. If not, `git init`, and a `.gitignore` with `node_modules` (no trailing slash, it also covers a symlink) before the first commit. `clever deploy` refuses linked git worktrees: deploy another branch with `--branch <name>`.
 - Regions: `par` (Paris), `parhds` / `rbxhds` / `grahds` (health data, HDS), others in `clever create --help`. Plans per add-on: `clever addon providers show postgresql-addon`.
 - Region and org must be the same for app and add-on. Encryption at rest is chosen **only at creation**.
 - PostgreSQL plans: `dev` = shared, 5 connections, no backups (tests only); `xxs_tny` (the smallest) and up = dedicated, 45+ connections, daily backups. Size the DB pool below the plan limit × instances.
 - Read the add-on variables (`POSTGRESQL_ADDON_URI`, `MYSQL_ADDON_URI`, `REDIS_URL`, `CELLAR_ADDON_*`) **in the code** (`process.env.DATABASE_URL || process.env.POSTGRESQL_ADDON_URI`). Copying the value into another variable freezes it.
-- Check the injected variables: `clever env | sed 's/=.*/=…/'`.
+- Check the injected variables: `clever env | grep -oE '^[A-Za-z_][A-Za-z0-9_]*='`.
 - Env changes need `clever restart`. `clever deploy` and `clever restart` stream logs and return once the deployment ends (OK or FAIL). Same commit again → `clever restart` or `clever deploy --same-commit-policy restart`.
 
 ## Code requirements
